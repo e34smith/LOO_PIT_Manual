@@ -6,9 +6,9 @@
 #SBATCH --time=7-00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --array = 0-7
+#SBATCH --array=0-7
 #SBATCH --mem=240G
-#SBATCH --mail-user=a2crespi@uwaterloo.ca
+#SBATCH --mail-user=e34smith@uwaterloo.ca
 #SBATCH --mail-type=BEGIN,END,FAIL
 
 module load julia/1.10.0
