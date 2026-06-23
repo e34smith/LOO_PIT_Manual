@@ -1,7 +1,7 @@
 using Pkg
 Pkg.activate(".")
-Pkg.instantiate()
-Pkg.resolve()
+# Pkg.instantiate()
+# Pkg.resolve()
 
 using Distributions
 using LinearAlgebra
@@ -68,7 +68,7 @@ using LinearAlgebra
 using IrrationalConstants
 using DimensionalData
 using Statistics
-using Plots
+#using Plots
 
 Threads.nthreads()
 
