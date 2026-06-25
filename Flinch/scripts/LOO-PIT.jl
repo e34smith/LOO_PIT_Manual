@@ -187,9 +187,6 @@ function count_nothings(NLLs, pixels, samples)
         end
     end
 
-    return nothing_count, something_count
-end
-
 nothing_count, something_count = count_nothings(NLLs, pixels, samples)
 
 println(nothing_count)

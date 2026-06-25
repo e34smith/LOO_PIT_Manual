@@ -11,6 +11,6 @@
 #SBATCH --mail-user=e34smith@uwaterloo.ca
 #SBATCH --mail-type=BEGIN,END,FAIL
 
-module load julia/1.11.6
+module load julia/1.10.0
 
-srun julia --project=/home/esmith/projects/rrg-wperciva/esmith/Flinch/scripts -t 32 /home/esmith/projects/rrg-wperciva/esmith/Flinch/scripts/LOO-PIT.jl
+srun julia --project=/home/esmith/projects/rrg-wperciva/esmith/Flinch -t 32 /home/esmith/projects/rrg-wperciva/esmith/Flinch/scripts/LOO-PIT.jl
