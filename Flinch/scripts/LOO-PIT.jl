@@ -10,12 +10,12 @@ using StatsBase
 
 using LogDensityProblems
 using LogDensityProblemsAD
-using AbstractDifferentiation
-using MCMCDiagnosticTools
-using AdvancedHMC
-using MicroCanonicalHMC
-using Pathfinder
-using Transducers
+#using AbstractDifferentiation
+#using MCMCDiagnosticTools
+#using AdvancedHMC
+#using MicroCanonicalHMC
+#using Pathfinder
+#using Transducers
 
 using Healpix
 using HealpixMPI
@@ -33,9 +33,9 @@ using NPZ
 using CSV
 using Test
 
-using Zygote: @adjoint
-using Zygote
-using ChainRules.ChainRulesCore
+#using Zygote: @adjoint
+#using Zygote
+#using ChainRules.ChainRulesCore
 
 include("AD_parallSHT.jl")
 include("gen_datatest.jl")
@@ -46,7 +46,6 @@ include("neglogproblem.jl")
 
 # using Turing
 # using Capse
-using NPZ
 # # using PlanckLite
 # using BenchmarkTools
 # using Plots
