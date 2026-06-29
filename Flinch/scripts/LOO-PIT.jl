@@ -1,7 +1,7 @@
 using Pkg
 Pkg.activate(".")
-# Pkg.instantiate()
-# Pkg.resolve()
+Pkg.instantiate()
+Pkg.resolve()
 
 using Distributions
 using LinearAlgebra
@@ -10,12 +10,12 @@ using StatsBase
 
 using LogDensityProblems
 using LogDensityProblemsAD
-#using AbstractDifferentiation
-#using MCMCDiagnosticTools
-#using AdvancedHMC
-#using MicroCanonicalHMC
-#using Pathfinder
-#using Transducers
+using AbstractDifferentiation
+using MCMCDiagnosticTools
+using AdvancedHMC
+using MicroCanonicalHMC
+using Pathfinder
+using Transducers
 
 using Healpix
 using HealpixMPI
@@ -33,9 +33,9 @@ using NPZ
 using CSV
 using Test
 
-#using Zygote: @adjoint
-#using Zygote
-#using ChainRules.ChainRulesCore
+using Zygote: @adjoint
+using Zygote
+using ChainRules.ChainRulesCore
 
 include("AD_parallSHT.jl")
 include("gen_datatest.jl")
@@ -46,6 +46,7 @@ include("neglogproblem.jl")
 
 # using Turing
 # using Capse
+using NPZ
 # # using PlanckLite
 # using BenchmarkTools
 # using Plots
@@ -62,19 +63,18 @@ include("neglogproblem.jl")
 using PSIS
 # include("utils.jl");
 using ArviZ
-using ArviZPythonPlots
+#using ArviZPythonPlots
 using LinearAlgebra
 using IrrationalConstants
 using DimensionalData
 using Statistics
-#using Plots
 
 Threads.nthreads()
 
-files = filter(
-    f -> endswith(f, "_mask_NUTS_nside_16.npy"),
-    readdir("/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains"; join=true)
-)
+# files = filter(
+#     f -> endswith(f, "_mask_NUTS_nside_16.npy"),
+#     readdir("/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains"; join=true)
+# )
 
 # for file in files
 #     println(file)
@@ -82,10 +82,20 @@ files = filter(
 
 # sort!(files)
 
-#sampled_params = hcat((npzread(f) for f in files)...)
+# sampled_params = hcat((npzread(f) for f in files)...)
 
+files = ["/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains/2yjXc_mask_NUTS_nside_16.npy"]
 sampled_params = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains/2yjXc_mask_NUTS_nside_16.npy")
+
 samples = size(sampled_params, 2)
+
+ids = [
+    replace(splitext(basename(f))[1],
+            "_mask_NUTS_nside_16" => "")
+    for f in files
+]
+
+runname = join(ids, "_")
 
 seed = 1123
 Random.seed!(seed)
@@ -159,12 +169,13 @@ pixels = length(gen_DMap.pixels)
 NLLs = Matrix{Any}(undef, pixels, samples)
 
 for n in 1:samples
+    θ = sampled_params[:,n]
+    alm = θ[1:length(θ)-lmax-1]
+    sample_alm = x_vec2vecmat(alm, lmax, 1, comm, root=root)
+    sample_HAlm = from_alm_to_healpix_alm(sample_alm, lmax, 1, comm, root=root)[1]
+    sample_DAlm = HAlm2DAlm(sample_HAlm, comm; clear=true, root=root)
+
     Threads.@threads for i in 1:pixels
-        θ = sampled_params[:,n]
-        alm = θ[1:length(θ)-lmax-1]
-        sample_alm = x_vec2vecmat(alm, lmax, 1, comm, root=root)
-        sample_HAlm = from_alm_to_healpix_alm(sample_alm, lmax, 1, comm, root=root)[1]
-        sample_DAlm = HAlm2DAlm(sample_HAlm, comm; clear=true, root=root)
         NLL = NLL_Pixel(sample_DAlm, helper_DMap, ncore, gen_DMap, invN_DMap, BP_l, i)
         NLLs[i,n] = NLL
     end
@@ -185,6 +196,9 @@ function count_nothings(NLLs, pixels, samples)
             end
         end
     end
+
+    return nothing_count, something_count
+end
 
 nothing_count, something_count = count_nothings(NLLs, pixels, samples)
 
@@ -250,10 +264,51 @@ failure_rate = failure_count / unmasked_pixels
 println(failure_count)
 println(failure_rate)
 
-mkpath("PSIS_results")
-npzwrite("PSIS_results/pareto_shapes_$(samples)_$(nside).npy", pareto_shapes)
-npzwrite("PSIS_results/failure_rate_$(samples)_$(nside).npy", [failure_count, unmasked_pixels, failure_rate])
-Plots.savefig(shape_plot, "PSIS_results/pareto_shapes.png")
-Plots.savefig(psis_shapes_hist, "PSIS_results/pareto_shapes_histogram.png")
+mkpath("PSIS_results/$runname")
+npzwrite("PSIS_results/$runname/pareto_shapes_$(samples)_$(nside).npy", pareto_shapes)
+npzwrite("PSIS_results/$runname/failure_rate_$(samples)_$(nside).npy", [failure_count, unmasked_pixels, failure_rate])
+Plots.savefig(shape_plot, "PSIS_results/$runname/pareto_shapes_$(samples)_$(nside).png")
+Plots.savefig(psis_shapes_hist, "PSIS_results/$runname/pareto_shapes_histogram_$(samples)_$(nside).png")
+
+
+
+
+
+failed_map = HealpixMap{Float64,RingOrder}(nside)
+
+# Fill everything with NaN (or Healpix.UNSEEN if you prefer)
+failed_map.pixels .= NaN
+
+unmasked_index = 0
+
+for pix in 1:pixels
+    if NLLs[pix,1] !== nothing
+        global unmasked_index += 1
+
+        if pareto_shapes[unmasked_index] > 0.7
+            failed_map.pixels[pix] = 1.0
+        else
+            failed_map.pixels[pix] = 0.0
+        end
+    end
+end
+
+shape_map = HealpixMap{Float64,RingOrder}(nside)
+shape_map.pixels .= NaN
+
+unmasked_index = 0
+for pix in 1:pixels
+    if NLLs[pix,1] !== nothing
+        global unmasked_index += 1
+        shape_map.pixels[pix] = pareto_shapes[unmasked_index]
+    end
+end
+
+failure_map = Plots.plot(shape_map)
+
+shape_map = Plots.plot(failed_map)
+
+Plots.savefig(failure_map, "PSIS_results/$runname/failure_map_$(samples)_$(nside).png")
+Plots.savefig(shape_map, "PSIS_results/$runname/shape_map_$(samples)_$(nside).png")
 
 
