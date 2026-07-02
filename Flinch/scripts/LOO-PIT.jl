@@ -123,9 +123,9 @@ mask_512 = readMapFromFITS("wmap_temperature_kq85_analysis_mask_r9_9yr_v5.fits",
 mask_nside = udgrade(nest2ring(mask_512), nside)
 for i in 1:length(mask_nside.pixels)
     if mask_nside.pixels[i]<=0.5
-        mask_nside.pixels[i]=1
-    else
         mask_nside.pixels[i]=0
+    else
+        mask_nside.pixels[i]=1
     end
 end
 
@@ -264,51 +264,47 @@ failure_rate = failure_count / unmasked_pixels
 println(failure_count)
 println(failure_rate)
 
-mkpath("PSIS_results/$runname")
-npzwrite("PSIS_results/$runname/pareto_shapes_$(samples)_$(nside).npy", pareto_shapes)
-npzwrite("PSIS_results/$runname/failure_rate_$(samples)_$(nside).npy", [failure_count, unmasked_pixels, failure_rate])
-Plots.savefig(shape_plot, "PSIS_results/$runname/pareto_shapes_$(samples)_$(nside).png")
-Plots.savefig(psis_shapes_hist, "PSIS_results/$runname/pareto_shapes_histogram_$(samples)_$(nside).png")
+mkpath("PSIS_results/$(samples)_$(nside)/$runname")
+npzwrite("PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes.npy", pareto_shapes)
+npzwrite("PSIS_results/$(samples)_$(nside)/$runname/failure_rate.npy", [failure_count, unmasked_pixels, failure_rate])
+Plots.savefig(shape_plot, "PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes.png")
+Plots.savefig(psis_shapes_hist, "PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes_histogram.png")
 
 
 
+plot(mask_nside)
 
-
-failed_map = HealpixMap{Float64,RingOrder}(nside)
-
-# Fill everything with NaN (or Healpix.UNSEEN if you prefer)
-failed_map.pixels .= NaN
+shape_mapping = deepcopy(mask_nside)
 
 unmasked_index = 0
-
 for pix in 1:pixels
-    if NLLs[pix,1] !== nothing
+    if shape_mapping[pix] != 0.0
         global unmasked_index += 1
+        shape_mapping[pix] = pareto_shapes[unmasked_index]
+    else
+        shape_mapping[pix] = -1
+    end
+end
 
+shape_map = Plots.plot(shape_mapping)
+
+failure_mapping = deepcopy(mask_nside)
+
+unmasked_index = 0
+for pix in 1:pixels
+    if failure_mapping[pix] != 0.0
+        unmasked_index += 1
         if pareto_shapes[unmasked_index] > 0.7
-            failed_map.pixels[pix] = 1.0
+            failure_mapping[pix] = 1.0
         else
-            failed_map.pixels[pix] = 0.0
+            failure_mapping[pix] = 0.2
         end
+    else
+        failure_mapping[pix] = 0.0
     end
 end
 
-shape_map = HealpixMap{Float64,RingOrder}(nside)
-shape_map.pixels .= NaN
+failure_map = Plots.plot(failure_mapping)
 
-unmasked_index = 0
-for pix in 1:pixels
-    if NLLs[pix,1] !== nothing
-        global unmasked_index += 1
-        shape_map.pixels[pix] = pareto_shapes[unmasked_index]
-    end
-end
-
-failure_map = Plots.plot(shape_map)
-
-shape_map = Plots.plot(failed_map)
-
-Plots.savefig(failure_map, "PSIS_results/$runname/failure_map_$(samples)_$(nside).png")
-Plots.savefig(shape_map, "PSIS_results/$runname/shape_map_$(samples)_$(nside).png")
-
-
+Plots.savefig(failure_map, "PSIS_results/$(samples)_$(nside)/$runname/failure_map.png")
+Plots.savefig(shape_map, "PSIS_results/$(samples)_$(nside)/$runname/shape_map.png")
