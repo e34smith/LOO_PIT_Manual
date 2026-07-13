@@ -123,9 +123,9 @@ mask_512 = readMapFromFITS("wmap_temperature_kq85_analysis_mask_r9_9yr_v5.fits",
 mask_nside = udgrade(nest2ring(mask_512), nside)
 for i in 1:length(mask_nside.pixels)
     if mask_nside.pixels[i]<=0.5
-        mask_nside.pixels[i]=0
-    else
         mask_nside.pixels[i]=1
+    else
+        mask_nside.pixels[i]=0
     end
 end
 
