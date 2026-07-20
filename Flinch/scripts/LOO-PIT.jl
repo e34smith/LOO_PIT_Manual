@@ -183,6 +183,8 @@ end
 
 NLLs
 
+NLLs_float = map(x -> x === nothing ? NaN : x, NLLs)
+
 function count_nothings(NLLs, pixels, samples)
     nothing_count = 0
     something_count = 0
@@ -216,7 +218,7 @@ println(switch_vector)
 
 unmasked_pixels = 0
 for i in 1:pixels
-    if NLLs[i, 1] != nothing
+    if NLLs[i, 1] !== nothing
         global unmasked_pixels += 1
     end
 end
@@ -224,7 +226,7 @@ end
 unmasked_NLLs = Matrix{Float64}(undef, unmasked_pixels, samples)
 unmasked_pixels = 0
 for i in 1:pixels
-    if NLLs[i, 1] != nothing
+    if NLLs[i, 1] !== nothing
         global unmasked_pixels += 1
         unmasked_NLLs[unmasked_pixels,:] = NLLs[i,:]
     end
@@ -267,10 +269,12 @@ println(failure_rate)
 mkpath("PSIS_results/$(samples)_$(nside)/$runname")
 npzwrite("PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes.npy", pareto_shapes)
 npzwrite("PSIS_results/$(samples)_$(nside)/$runname/failure_rate.npy", [failure_count, unmasked_pixels, failure_rate])
+
+mkpath("NLLs/$(samples)_$(nside)/$runname")
+npzwrite("NLLs/$(samples)_$(nside)/$runname/NLLs.npy", NLLs_float)
+
 Plots.savefig(shape_plot, "PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes.png")
 Plots.savefig(psis_shapes_hist, "PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes_histogram.png")
-
-
 
 plot(mask_nside)
 
@@ -278,29 +282,29 @@ shape_mapping = deepcopy(mask_nside)
 
 unmasked_index = 0
 for pix in 1:pixels
-    if shape_mapping[pix] != 0.0
+    if shape_mapping[pix] != 1.0
         global unmasked_index += 1
         shape_mapping[pix] = pareto_shapes[unmasked_index]
     else
-        shape_mapping[pix] = -1
+        shape_mapping[pix] = NaN
     end
 end
 
-shape_map = Plots.plot(shape_mapping)
+shape_map = plot(shape_mapping)
 
 failure_mapping = deepcopy(mask_nside)
 
 unmasked_index = 0
 for pix in 1:pixels
-    if failure_mapping[pix] != 0.0
+    if failure_mapping[pix] != 1.0
         unmasked_index += 1
         if pareto_shapes[unmasked_index] > 0.7
             failure_mapping[pix] = 1.0
         else
-            failure_mapping[pix] = 0.2
+            failure_mapping[pix] = 0.0
         end
     else
-        failure_mapping[pix] = 0.0
+        failure_mapping[pix] = NaN
     end
 end
 
@@ -308,3 +312,44 @@ failure_map = Plots.plot(failure_mapping)
 
 Plots.savefig(failure_map, "PSIS_results/$(samples)_$(nside)/$runname/failure_map.png")
 Plots.savefig(shape_map, "PSIS_results/$(samples)_$(nside)/$runname/shape_map.png")
+
+
+
+#Optionally load NLLs
+#unmasked_NLLs = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/LOO_PIT_Manual/Flinch/scripts/NLLs/2000_16/2yjXc/NLLs.npy")
+
+comparison_values = Array{Float64}(undef, length(mask_nside), samples)
+
+for i in 1:length(mask_nside)
+    for j in 1:samples
+        comparison_values[i,j] = i*j
+    end
+end
+
+comparison_values
+
+unmasked_genDMap = Vector{Float64}(undef, unmasked_pixels)
+
+unmasked_pixels = 0
+for i in 1:pixels
+    if gen_DMap.pixels[i] != 0.0
+        global unmasked_pixels += 1
+        unmasked_genDMap[unmasked_pixels] = gen_DMap.pixels[i]
+    end
+end
+
+gen_mapping = deepcopy(mask_nside)
+
+index = 0
+for pix in 1:pixels
+    if gen_mapping[pix] != 1.0
+        global index += 1
+        gen_mapping[pix] = unmasked_genDMap[index]
+    else
+        gen_mapping[pix] = NaN
+    end
+end
+
+plot(gen_mapping)
+
+
