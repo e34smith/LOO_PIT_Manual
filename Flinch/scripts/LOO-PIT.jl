@@ -156,17 +156,24 @@ HealpixMPI.Scatter!(invN_HMap, invN_DMap, comm, clear=true)
 
 helper_DMap = deepcopy(gen_DMap)
 
-# θ = sampled_params[:,1]
-# alm = θ[1:length(θ)-lmax-1]
-# sample_alm = x_vec2vecmat(alm, lmax, 1, comm, root=root)
-# sample_HAlm = from_alm_to_healpix_alm(sample_alm, lmax, 1, comm, root=root)[1]
-# sample_DAlm = HAlm2DAlm(sample_HAlm, comm; clear=true, root=root)
+θ = sampled_params[:,1500]
+alm = θ[1:length(θ)-lmax-1]
+sample_alm = x_vec2vecmat(alm, lmax, 1, comm, root=root)
+sample_HAlm = from_alm_to_healpix_alm(sample_alm, lmax, 1)[1] # comm, root=root)[1]
+sample_DAlm = HAlm2DAlm(sample_HAlm, comm; clear=true, root=root)
 
-# NLL_Pixel(sample_DAlm, helper_DMap, ncore, gen_DMap, invN_DMap, BP_l, 1354)
+sample_HMap = Healpix.alm2map(sample_HAlm, nside)
+plot(HealpixMap{Float64, RingOrder}(sample_HMap.pixels[:, 1]))
+
+# reshape(NLLs_float[:,1], :, 1)
+# helper_DMap.pixels = reshape(NLLs_float[:,1], :, 1)
+
+NLL_Pixel(sample_DAlm, helper_DMap, ncore, gen_DMap, invN_DMap, BP_l, 1354)
 
 pixels = length(gen_DMap.pixels)
 
 NLLs = Matrix{Any}(undef, pixels, samples)
+samples_HMap = [HealpixMap{Float64, RingOrder}(nside) for i in 1:samples]
 
 for n in 1:samples
     θ = sampled_params[:,n]
@@ -174,47 +181,52 @@ for n in 1:samples
     sample_alm = x_vec2vecmat(alm, lmax, 1, comm, root=root)
     sample_HAlm = from_alm_to_healpix_alm(sample_alm, lmax, 1, comm, root=root)[1]
     sample_DAlm = HAlm2DAlm(sample_HAlm, comm; clear=true, root=root)
-
+    
     Threads.@threads for i in 1:pixels
         NLL = NLL_Pixel(sample_DAlm, helper_DMap, ncore, gen_DMap, invN_DMap, BP_l, i)
         NLLs[i,n] = NLL
     end
+
+    NLLs_pixels_n = map(x -> x === nothing ? NaN : x, NLLs[:, n])
+    helper_DMap.pixels = reshape(NLLs_pixels_n, :, 1)
+    
+    MPI.Gather!(helper_DMap, samples_HMap[n])
 end
 
-NLLs
+NLLs_pixels = reduce(hcat, [samples_HMap[i].pixels for i in 1:samples])
 
-NLLs_float = map(x -> x === nothing ? NaN : x, NLLs)
+plot(samples_HMap[1000])
 
-function count_nothings(NLLs, pixels, samples)
-    nothing_count = 0
-    something_count = 0
+# function count_nothings(NLLs, pixels, samples)
+#     nothing_count = 0
+#     something_count = 0
 
-    for i in 1:pixels
-        for j in 1:samples
-            if NLLs[i,j] === nothing
-                nothing_count += 1
-            else
-                something_count += 1
-            end
-        end
-    end
+#     for i in 1:pixels
+#         for j in 1:samples
+#             if NLLs[i,j] === nothing
+#                 nothing_count += 1
+#             else
+#                 something_count += 1
+#             end
+#         end
+#     end
 
-    return nothing_count, something_count
-end
+#     return nothing_count, something_count
+# end
 
-nothing_count, something_count = count_nothings(NLLs, pixels, samples)
+# nothing_count, something_count = count_nothings(NLLs, pixels, samples)
 
-println(nothing_count)
-println(something_count)
+# println(nothing_count)
+# println(something_count)
 
-switch_vector = Vector{Int64}()
-for i in 1:(pixels-1)
-    if (NLLs[i,1] == nothing && NLLs[i+1, 1] != nothing) || (NLLs[i,1] != nothing && NLLs[i+1, 1] == nothing)
-        append!(switch_vector, i)
-    end
-end
-println(length(switch_vector))
-println(switch_vector)
+# switch_vector = Vector{Int64}()
+# for i in 1:(pixels-1)
+#     if (NLLs[i,1] == nothing && NLLs[i+1, 1] != nothing) || (NLLs[i,1] != nothing && NLLs[i+1, 1] == nothing)
+#         append!(switch_vector, i)
+#     end
+# end
+# println(length(switch_vector))
+# println(switch_vector)
 
 unmasked_pixels = 0
 for i in 1:pixels
@@ -238,13 +250,18 @@ unmasked_NLLs
 
 histogram(unmasked_NLLs[:,1])
 
-psis_result = Vector{PSISResult{Float64, Vector{Float64}, Int64, Int64, PSIS.GeneralizedPareto{Float64}}}(undef, unmasked_pixels);
-for i in 1:unmasked_pixels
-    psis_result[i] = psis(unmasked_NLLs[i,:])
+# psis_result = Vector{PSISResult{Float64, Vector{Float64}, Int64, Int64, PSIS.GeneralizedPareto{Float64}}}(undef, unmasked_pixels);
+# for i in 1:unmasked_pixels
+#     psis_result[i] = psis(unmasked_NLLs[i,:])
+# end
+
+psis_result = Vector{PSISResult{Float64, Vector{Float64}, Int64, Int64, PSIS.GeneralizedPareto{Float64}}}(undef, pixels);
+for i in 1:pixels
+    psis_result[i] = psis(NLLs_pixels[i,:])
 end
 
 pareto_shapes = Vector{Float64}()
-for i in 1:unmasked_pixels
+for i in 1:pixels
     append!(pareto_shapes, psis_result[i].pareto_shape)
 end
 println("Pareto Shapes: ", pareto_shapes)
@@ -257,7 +274,7 @@ psis_shapes_hist = histogram(pareto_shapes)
 vline!([0.7])
 
 failure_count= 0 
-for i in 1:unmasked_pixels
+for i in 1:pixels
     if pareto_shapes[i] > 0.7
         global failure_count += 1
     end
@@ -271,44 +288,30 @@ npzwrite("PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes.npy", pareto_s
 npzwrite("PSIS_results/$(samples)_$(nside)/$runname/failure_rate.npy", [failure_count, unmasked_pixels, failure_rate])
 
 mkpath("NLLs/$(samples)_$(nside)/$runname")
-npzwrite("NLLs/$(samples)_$(nside)/$runname/NLLs.npy", NLLs_float)
+npzwrite("NLLs/$(samples)_$(nside)/$runname/NLLs.npy", NLLs_pixels)
 
 Plots.savefig(shape_plot, "PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes.png")
 Plots.savefig(psis_shapes_hist, "PSIS_results/$(samples)_$(nside)/$runname/pareto_shapes_histogram.png")
 
 plot(mask_nside)
 
-shape_mapping = deepcopy(mask_nside)
-
-unmasked_index = 0
-for pix in 1:pixels
-    if shape_mapping[pix] != 1.0
-        global unmasked_index += 1
-        shape_mapping[pix] = pareto_shapes[unmasked_index]
-    else
-        shape_mapping[pix] = NaN
-    end
-end
-
+shape_mapping = HealpixMap{Float64, RingOrder, Vector{Float64}}(pareto_shapes)
 shape_map = plot(shape_mapping)
 
-failure_mapping = deepcopy(mask_nside)
+failure_vector = Vector{Float64}(undef, pixels)
 
-unmasked_index = 0
-for pix in 1:pixels
-    if failure_mapping[pix] != 1.0
-        unmasked_index += 1
-        if pareto_shapes[unmasked_index] > 0.7
-            failure_mapping[pix] = 1.0
-        else
-            failure_mapping[pix] = 0.0
-        end
+for i in 1:pixels
+    if isnan(pareto_shapes[i])
+        failure_vector[i] = NaN
+    elseif pareto_shapes[i] > 0.7
+        failure_vector[i] = 1.0
     else
-        failure_mapping[pix] = NaN
+        failure_vector[i] = 0.0  
     end
 end
 
-failure_map = Plots.plot(failure_mapping)
+failure_mapping = HealpixMap{Float64, RingOrder, Vector{Float64}}(failure_vector)
+failure_map = plot(failure_mapping)
 
 Plots.savefig(failure_map, "PSIS_results/$(samples)_$(nside)/$runname/failure_map.png")
 Plots.savefig(shape_map, "PSIS_results/$(samples)_$(nside)/$runname/shape_map.png")
@@ -316,40 +319,31 @@ Plots.savefig(shape_map, "PSIS_results/$(samples)_$(nside)/$runname/shape_map.pn
 
 
 #Optionally load NLLs
-#unmasked_NLLs = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/LOO_PIT_Manual/Flinch/scripts/NLLs/2000_16/2yjXc/NLLs.npy")
+#NLLs_pixels = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/LOO_PIT_Manual/Flinch/scripts/NLLs/2000_16/2yjXc/NLLs.npy")
 
-comparison_values = Array{Float64}(undef, length(mask_nside), samples)
+# comparison_values = Array{Float64}(undef, length(mask_nside), samples)
 
-for i in 1:length(mask_nside)
-    for j in 1:samples
-        comparison_values[i,j] = i*j
+# # for i in 1:length(mask_nside)
+# #     for j in 1:samples
+# #         for k in 1:pixels
+
+for i in 1:10
+    for j in 1:10
+        for k in 1:10
+            data = gen_DMap.pixels[i]
+            comparison_values[i,j] = data
+        end
     end
 end
 
-comparison_values
+# comparison_values
 
-unmasked_genDMap = Vector{Float64}(undef, unmasked_pixels)
+NaN_Mask = map(x -> x === 0.0 ? NaN : x, gen_HMap)
 
-unmasked_pixels = 0
-for i in 1:pixels
-    if gen_DMap.pixels[i] != 0.0
-        global unmasked_pixels += 1
-        unmasked_genDMap[unmasked_pixels] = gen_DMap.pixels[i]
-    end
-end
+gen_HMap = HealpixMap{Float64, RingOrder, Vector{Float64}}(NaN_Mask)
 
-gen_mapping = deepcopy(mask_nside)
+plot(gen_HMap)
 
-index = 0
-for pix in 1:pixels
-    if gen_mapping[pix] != 1.0
-        global index += 1
-        gen_mapping[pix] = unmasked_genDMap[index]
-    else
-        gen_mapping[pix] = NaN
-    end
-end
-
-plot(gen_mapping)
+plot(samples_HMap[1])
 
 
