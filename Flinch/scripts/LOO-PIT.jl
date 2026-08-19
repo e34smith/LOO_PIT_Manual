@@ -84,8 +84,8 @@ Threads.nthreads()
 
 # sampled_params = hcat((npzread(f) for f in files)...)
 
-files = ["/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains/2yjXc_mask_NUTS_nside_16.npy"]
-sampled_params = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains/2yjXc_mask_NUTS_nside_16.npy")
+files = ["/Users/ethansmith/Desktop/Waterloo/Masters/LOO_PIT_Manual/Flinch/scripts/MPI_Chains/nside_16/aNW8N_mask_NUTS_nside_16.npy"]
+sampled_params = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/LOO_PIT_Manual/Flinch/scripts/MPI_Chains/nside_16/aNW8N_mask_NUTS_nside_16.npy")
 
 samples = size(sampled_params, 2)
 
@@ -165,14 +165,9 @@ sample_DAlm = HAlm2DAlm(sample_HAlm, comm; clear=true, root=root)
 sample_HMap = Healpix.alm2map(sample_HAlm, nside)
 plot(HealpixMap{Float64, RingOrder}(sample_HMap.pixels[:, 1]))
 
-# reshape(NLLs_float[:,1], :, 1)
-# helper_DMap.pixels = reshape(NLLs_float[:,1], :, 1)
-
-NLL_Pixel(sample_DAlm, helper_DMap, ncore, gen_DMap, invN_DMap, BP_l, 1354)
-
-pixels = length(gen_DMap.pixels)
-
+pixels = length(gen_DMap.pixels) 
 NLLs = Matrix{Any}(undef, pixels, samples)
+NLLs_HMap = [HealpixMap{Float64, RingOrder}(nside) for i in 1:samples]
 samples_HMap = [HealpixMap{Float64, RingOrder}(nside) for i in 1:samples]
 
 for n in 1:samples
@@ -189,71 +184,18 @@ for n in 1:samples
 
     NLLs_pixels_n = map(x -> x === nothing ? NaN : x, NLLs[:, n])
     helper_DMap.pixels = reshape(NLLs_pixels_n, :, 1)
-    
-    MPI.Gather!(helper_DMap, samples_HMap[n])
+    MPI.Gather!(helper_DMap, NLLs_HMap[n])
+
+    sample_HMap = Healpix.alm2map(sample_HAlm, nside)
+    samples_HMap[n] = sample_HMap
 end
 
-NLLs_pixels = reduce(hcat, [samples_HMap[i].pixels for i in 1:samples])
+
+NLLs_pixels = reduce(hcat, [NLLs_HMap[i].pixels for i in 1:samples])
+
+plot(NLLs_HMap[1000])
 
 plot(samples_HMap[1000])
-
-# function count_nothings(NLLs, pixels, samples)
-#     nothing_count = 0
-#     something_count = 0
-
-#     for i in 1:pixels
-#         for j in 1:samples
-#             if NLLs[i,j] === nothing
-#                 nothing_count += 1
-#             else
-#                 something_count += 1
-#             end
-#         end
-#     end
-
-#     return nothing_count, something_count
-# end
-
-# nothing_count, something_count = count_nothings(NLLs, pixels, samples)
-
-# println(nothing_count)
-# println(something_count)
-
-# switch_vector = Vector{Int64}()
-# for i in 1:(pixels-1)
-#     if (NLLs[i,1] == nothing && NLLs[i+1, 1] != nothing) || (NLLs[i,1] != nothing && NLLs[i+1, 1] == nothing)
-#         append!(switch_vector, i)
-#     end
-# end
-# println(length(switch_vector))
-# println(switch_vector)
-
-unmasked_pixels = 0
-for i in 1:pixels
-    if NLLs[i, 1] !== nothing
-        global unmasked_pixels += 1
-    end
-end
-
-unmasked_NLLs = Matrix{Float64}(undef, unmasked_pixels, samples)
-unmasked_pixels = 0
-for i in 1:pixels
-    if NLLs[i, 1] !== nothing
-        global unmasked_pixels += 1
-        unmasked_NLLs[unmasked_pixels,:] = NLLs[i,:]
-    end
-end
-
-unmasked_pixels
-
-unmasked_NLLs
-
-histogram(unmasked_NLLs[:,1])
-
-# psis_result = Vector{PSISResult{Float64, Vector{Float64}, Int64, Int64, PSIS.GeneralizedPareto{Float64}}}(undef, unmasked_pixels);
-# for i in 1:unmasked_pixels
-#     psis_result[i] = psis(unmasked_NLLs[i,:])
-# end
 
 psis_result = Vector{PSISResult{Float64, Vector{Float64}, Int64, Int64, PSIS.GeneralizedPareto{Float64}}}(undef, pixels);
 for i in 1:pixels
@@ -273,12 +215,20 @@ hline!([1.0], linestyle=:solid, color=:black)
 psis_shapes_hist = histogram(pareto_shapes)
 vline!([0.7])
 
-failure_count= 0 
+failure_count = 0                       #counts the number of pixels who have a pareto shape value exceeding the threshhold of 0.7
 for i in 1:pixels
     if pareto_shapes[i] > 0.7
         global failure_count += 1
     end
 end
+
+unmasked_pixels = 0                     #counts the total number of pixels that are not covered by the survey mask
+for i in 1:pixels
+    if !isnan(pareto_shapes[i])
+        global unmasked_pixels += 1
+    end
+end
+
 failure_rate = failure_count / unmasked_pixels
 println(failure_count)
 println(failure_rate)
@@ -316,34 +266,59 @@ failure_map = plot(failure_mapping)
 Plots.savefig(failure_map, "PSIS_results/$(samples)_$(nside)/$runname/failure_map.png")
 Plots.savefig(shape_map, "PSIS_results/$(samples)_$(nside)/$runname/shape_map.png")
 
+mask = .!isnan.(gen_HMap.pixels)
+y_obs = gen_HMap.pixels;
+
+#sampled_observed_maps = Vector{HealpixMap{Float64,RingOrder}}(undef, samples)
+preds = Matrix{Float64}(undef, samples, pixels)
+
+for s in 1:samples
+
+    # Convert sampled parameters θ to Healpix alm
+    θ = sampled_params[:,s]
+    alm = θ[1:end-(lmax+1)]
+    sample_alm = x_vec2vecmat(alm, lmax, 1, comm, root=root)
+    sample_HAlm = from_alm_to_healpix_alm(sample_alm, lmax, 1, comm, root=root)[1]
+
+    # Apply beam and pixel window
+    pred_HAlm = almxfl(sample_HAlm, BP_l)
+
+    # Convert to map
+    sampled_observed_map = Healpix.alm2map(pred_HAlm, nside)
 
 
-#Optionally load NLLs
-#NLLs_pixels = npzread("/Users/ethansmith/Desktop/Waterloo/Masters/LOO_PIT_Manual/Flinch/scripts/NLLs/2000_16/2yjXc/NLLs.npy")
+    # Independent observational noise
+    noise = rand( MvNormal(zeros(length(N)), Diagonal(N)) )
 
-# comparison_values = Array{Float64}(undef, length(mask_nside), samples)
+    # Posterior predictive map
+    pred_pixels = sampled_observed_map.pixels .+ noise
 
-# # for i in 1:length(mask_nside)
-# #     for j in 1:samples
-# #         for k in 1:pixels
+    # Keep observed pixels only
+    preds[s,:] .= pred_pixels[mask]
 
-for i in 1:10
-    for j in 1:10
-        for k in 1:10
-            data = gen_DMap.pixels[i]
-            comparison_values[i,j] = data
-        end
-    end
 end
 
-# comparison_values
+loo_pit_values = Vector{Float64}(undef, pixels)
 
-NaN_Mask = map(x -> x === 0.0 ? NaN : x, gen_HMap)
+for j in 1:pixels
 
-gen_HMap = HealpixMap{Float64, RingOrder, Vector{Float64}}(NaN_Mask)
+    # Retrieve PSIS log weights
+    logw = copy(psis_result[j].log_weights)
 
-plot(gen_HMap)
+    # Normalize the log weights
+    logw .-= maximum(logw)
 
-plot(samples_HMap[1])
+    w = exp.(logw)
 
+    w ./= sum(w)
 
+    # Weighted empirical CDF
+    loo_pit_values[j] = sum(w .* (preds[:,j] .<= y_obs[j]))
+
+end
+
+loo_pit_plot = histogram(loo_pit_values, bins=20, normalize=:pdf, xlabel="LOO-PIT", ylabel="Density", title="PSIS LOO-PIT", legend = false)
+
+mkpath("LOO-PIT_Plots/$(samples)_$(nside)/$runname")
+
+Plots.savefig(loo_pit_plot, "LOO-PIT_Plots/$(samples)_$(nside)/$runname/loo_pit_plot.png")
