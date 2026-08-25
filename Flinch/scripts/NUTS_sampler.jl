@@ -39,11 +39,28 @@ include("utils.jl")
 include("inference_model.jl")
 include("neglogproblem.jl")
 
-NUTS_prefix = randstring(5)
-init_seed = rand(1:10_000)
+# NUTS_prefix = randstring(5)
+#init_seed = rand(1:10_000)
 
-seed = 1123
+# seed = 1123
+# Random.seed!(seed)
+
+if length(ARGS) < 2
+    error("Usage: julia FLINCH_NUTS.jl <seed> <chain_id>")
+end
+
+seed = parse(Int, ARGS[1])
+chain_id = parse(Int, ARGS[2])
+init_seed = seed + 10000 * chain_id
+
 Random.seed!(seed)
+
+println("==============================")
+println("Starting FLINCH NUTS Chain")
+println("Seed = $seed")
+println("Chain ID = $chain_id")
+println("Initialization Seed = $init_seed")
+println("==============================")
 
 #   RESOLUTION PARAMETERS
 nside = 16
@@ -145,12 +162,21 @@ samples_NUTS, stats_NUTS = sample(ham, kernel, PF_start_θ, n_samples, adaptor, 
 MPI.Barrier(comm)
 NUTS_t = time() - t0
 
-mkpath("MPI_chains")
-npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_nside_$nside.npy", reduce(hcat, samples_NUTS))
-npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_stats_nside_$nside.npy", reduce(vcat, [[stats_NUTS[i][:log_density] for i in 1:1_000] [stats_NUTS[i][:hamiltonian_energy] for i in 1:1_000] [stats_NUTS[i][:tree_depth] for i in 1:1_000]]))
+# mkpath("MPI_chains")
+# npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_nside_$nside.npy", reduce(hcat, samples_NUTS))
+# npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_stats_nside_$nside.npy", reduce(vcat, [[stats_NUTS[i][:log_density] for i in 1:1_000] [stats_NUTS[i][:hamiltonian_energy] for i in 1:1_000] [stats_NUTS[i][:tree_depth] for i in 1:1_000]]))
+
+# NUTS_ess, NUTS_rhat = Summarize(samples_NUTS)
+# npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_EssRhat_nside_$nside.npy", [NUTS_ess NUTS_rhat])
+# npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_SumPerf_nside_$nside.npy", [NUTS_t mean(NUTS_ess) median(NUTS_rhat)])
+
+mkpath("MPI_Chains/nside_$(nside)")
+chain_prefix = "seed_$(seed)_chain_$(chain_id)"
+npzwrite("MPI_Chains/nside_$(nside)/NUTS_$(chain_prefix).npy", reduce(hcat, samples_NUTS))
+npzwrite("MPI_Chains/nside_$(nside)/NUTS_$(chain_prefix)_stats.npy", reduce(vcat, [[stats_NUTS[i][:log_density] for i in 1:1_000] [stats_NUTS[i][:hamiltonian_energy] for i in 1:1_000] [stats_NUTS[i][:tree_depth] for i in 1:1_000]]))
 
 NUTS_ess, NUTS_rhat = Summarize(samples_NUTS)
-npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_EssRhat_nside_$nside.npy", [NUTS_ess NUTS_rhat])
-npzwrite("MPI_chains/$(NUTS_prefix)_mask_NUTS_SumPerf_nside_$nside.npy", [NUTS_t mean(NUTS_ess) median(NUTS_rhat)])
+npzwrite("MPI_Chains/nside_$(nside)/NUTS_$(chain_prefix)_EssRhat.npy", [NUTS_ess NUTS_rhat])
+npzwrite("MPI_Chains/nside_$(nside)/NUTS_$(chain_prefix)_SumPerf.npy", [NUTS_t mean(NUTS_ess) median(NUTS_rhat)])
 
 MPI.Finalize()
