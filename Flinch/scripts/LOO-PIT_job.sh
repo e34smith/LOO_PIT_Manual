@@ -13,4 +13,6 @@
 
 module load julia/1.10.0
 
-srun julia --project=/home/esmith/projects/rrg-wperciva/esmith/Flinch -t 32 /home/esmith/projects/rrg-wperciva/esmith/Flinch/scripts/LOO-PIT.jl
+SEED=1123
+
+srun julia --project=/home/esmith/projects/rrg-wperciva/esmith/Flinch -t 32 /home/esmith/projects/rrg-wperciva/esmith/Flinch/scripts/LOO-PIT.jl $SEED

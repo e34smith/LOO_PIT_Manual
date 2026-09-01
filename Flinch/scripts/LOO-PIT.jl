@@ -71,6 +71,15 @@ using Statistics
 
 Threads.nthreads()
 
+if length(ARGS) < 1
+    error("Usage: julia LOO-PIT.jl <seed>")
+end
+
+seed = parse(Int, ARGS[1])
+Random.seed!(seed)
+
+println("Using seed: ", seed)
+
 # files = filter(
 #     f -> endswith(f, "_mask_NUTS_nside_16.npy"),
 #     readdir("/Users/ethansmith/Desktop/Waterloo/Masters/Andrea_flinch_scripts/scripts/MPI_chains"; join=true)
@@ -96,9 +105,6 @@ ids = [
 ]
 
 runname = join(ids, "_")
-
-seed = 1123
-Random.seed!(seed)
 
 #   RESOLUTION PARAMETERS
 nside = 16
